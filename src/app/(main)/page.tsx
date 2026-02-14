@@ -4,8 +4,17 @@ import { AppShell } from "@/components/AppShell";
 import { ReportCard } from "@/components/ReportCard";
 import { useAuth } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase/client";
+import { getDistanceKm } from "@/lib/utils/distance";
 import { cn } from "@/lib/utils/cn";
-import { Search, Shield } from "lucide-react";
+import {
+  Search,
+  TrendingUp,
+  AlertTriangle,
+  Loader2,
+  CheckCircle2,
+  Navigation,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 interface FeedReport {
@@ -37,7 +46,7 @@ const categoryFilters = [
 ] as const;
 
 export default function FeedPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const [reports, setReports] = useState<FeedReport[]>([]);
   const [followersCounts, setFollowersCounts] = useState<Record<string, number>>({});
   const [commentsCounts, setCommentsCounts] = useState<Record<string, number>>({});
@@ -45,6 +54,22 @@ export default function FeedPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearbyMode, setNearbyMode] = useState(false);
+
+  // Get user location
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNearbyMode(true);
+      },
+      () => {
+        // Location denied or unavailable
+      }
+    );
+  }, []);
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -65,7 +90,6 @@ export default function FeedPage() {
 
       const ids = data.map((r) => r.id);
 
-      // Fetch followers and comments counts in parallel
       const [followersResult, commentsResult] = await Promise.all([
         supabase
           .from("followers")
@@ -78,14 +102,12 @@ export default function FeedPage() {
           .eq("is_hidden", false),
       ]);
 
-      // Count followers per report
       const fCounts: Record<string, number> = {};
       followersResult.data?.forEach((f) => {
         fCounts[f.report_id] = (fCounts[f.report_id] || 0) + 1;
       });
       setFollowersCounts(fCounts);
 
-      // Count comments per report
       const cCounts: Record<string, number> = {};
       commentsResult.data?.forEach((c) => {
         cCounts[c.report_id] = (cCounts[c.report_id] || 0) + 1;
@@ -102,16 +124,36 @@ export default function FeedPage() {
     if (!authLoading) fetchReports();
   }, [authLoading, fetchReports]);
 
-  // Filter reports client-side
-  const filtered = reports.filter((r) => {
-    if (statusFilter !== "all" && r.status !== statusFilter) return false;
-    if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      if (!r.title.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  // Compute stats
+  const totalReports = reports.length;
+  const openIssues = reports.filter((r) => r.status === "open" || r.status === "acknowledged").length;
+  const inProgressCount = reports.filter((r) => r.status === "in_progress").length;
+  const resolvedCount = reports.filter((r) => r.status === "closed").length;
+
+  // Filter and optionally sort by distance
+  const filtered = reports
+    .map((r) => {
+      let distanceKm: number | null = null;
+      if (userLocation && r.latitude != null && r.longitude != null) {
+        distanceKm = getDistanceKm(userLocation.lat, userLocation.lng, r.latitude, r.longitude);
+      }
+      return { ...r, distanceKm };
+    })
+    .filter((r) => {
+      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!r.title.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (nearbyMode && a.distanceKm != null && b.distanceKm != null) {
+        return a.distanceKm - b.distanceKm;
+      }
+      return 0;
+    });
 
   if (authLoading) {
     return (
@@ -121,29 +163,78 @@ export default function FeedPage() {
     );
   }
 
+  const displayName = profile?.display_name || user?.email?.split("@")[0] || "there";
+
   return (
     <AppShell>
       <div className="min-h-screen bg-background pb-20 lg:pb-6 page-enter">
-        {/* Header */}
-        <div className="sticky top-0 z-40 glass glass-highlight border-b border-white/20 dark:border-white/5 px-4 py-3 safe-top">
-          <div className="max-w-lg lg:max-w-3xl xl:max-w-4xl mx-auto">
-            <div className="flex items-center gap-3">
-              <Shield className="h-6 w-6 text-[var(--primary)]" />
-              <h1 className="text-lg font-bold text-foreground">FixMyHood</h1>
+        <div className="max-w-lg lg:max-w-3xl xl:max-w-4xl mx-auto px-4 py-6 space-y-5">
+          {/* Welcome Header */}
+          <div>
+            <h1 className="text-xl font-bold text-foreground">
+              Welcome back, {displayName}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Stay updated with your community reports
+            </p>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="card-surface rounded-xl p-3">
+              <TrendingUp className="h-5 w-5 text-[var(--primary)] mb-2" />
+              <p className="text-lg font-bold text-foreground">{totalReports}</p>
+              <p className="text-[11px] text-muted-foreground">Total Reports</p>
+            </div>
+            <div className="card-surface rounded-xl p-3">
+              <AlertTriangle className="h-5 w-5 text-red-500 mb-2" />
+              <p className="text-lg font-bold text-foreground">{openIssues}</p>
+              <p className="text-[11px] text-muted-foreground">Open Issues</p>
+            </div>
+            <div className="card-surface rounded-xl p-3">
+              <Loader2 className="h-5 w-5 text-blue-500 mb-2" />
+              <p className="text-lg font-bold text-foreground">{inProgressCount}</p>
+              <p className="text-[11px] text-muted-foreground">In Progress</p>
+            </div>
+            <div className="card-surface rounded-xl p-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500 mb-2" />
+              <p className="text-lg font-bold text-foreground">{resolvedCount}</p>
+              <p className="text-[11px] text-muted-foreground">Resolved</p>
             </div>
           </div>
-        </div>
 
-        <div className="max-w-lg lg:max-w-3xl xl:max-w-4xl mx-auto px-4 py-4 space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reports..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-2 focus:ring-[var(--primary)] focus:border-[var(--primary)] outline-none transition-shadow"
-            />
+          {/* Search with Nearby + Filter */}
+          <div className="relative flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search reports, locations..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-2 focus:ring-[var(--primary)] focus:border-[var(--primary)] outline-none transition-shadow"
+              />
+            </div>
+            <button
+              onClick={() => {
+                if (nearbyMode) {
+                  setNearbyMode(false);
+                } else {
+                  requestLocation();
+                }
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all whitespace-nowrap",
+                nearbyMode
+                  ? "bg-[var(--primary)]/10 text-[var(--primary)] border-[var(--primary)]/30"
+                  : "bg-card text-muted-foreground border-border hover:border-[var(--primary)]/30"
+              )}
+            >
+              <Navigation className="h-3.5 w-3.5" />
+              Nearby
+            </button>
+            <button className="p-2.5 rounded-xl bg-card border border-border text-muted-foreground hover:border-[var(--primary)]/30 transition-colors">
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
           </div>
 
           {/* Status Filter Tabs */}
@@ -165,7 +256,7 @@ export default function FeedPage() {
           </div>
 
           {/* Category Filter Chips */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {categoryFilters.map((c) => (
               <button
                 key={c.value}
@@ -180,6 +271,14 @@ export default function FeedPage() {
                 {c.label}
               </button>
             ))}
+          </div>
+
+          {/* Recent Reports Heading */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-foreground">Recent Reports</h2>
+            <span className="text-xs text-muted-foreground">
+              {filtered.length} of {reports.length}
+            </span>
           </div>
 
           {/* Reports Grid */}
@@ -209,6 +308,7 @@ export default function FeedPage() {
                   createdAt={report.created_at}
                   followersCount={followersCounts[report.id] || 0}
                   commentsCount={commentsCounts[report.id] || 0}
+                  distanceKm={report.distanceKm}
                 />
               ))}
             </div>
