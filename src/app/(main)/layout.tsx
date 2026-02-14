@@ -1,16 +1,11 @@
-"use client";
+import { MainProviders } from "@/components/Providers";
 
-import { AuthProvider } from "@/contexts/AuthContext";
-import { ThemeProvider } from "@/contexts/ThemeContext";
+export const dynamic = "force-dynamic";
 
 export default function MainLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <ThemeProvider>
-      <AuthProvider>{children}</AuthProvider>
-    </ThemeProvider>
-  );
+  return <MainProviders>{children}</MainProviders>;
 }
