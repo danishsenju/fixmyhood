@@ -101,6 +101,7 @@ export default function ActivityPage() {
                   "id, title, status, updated_at, creator:profiles!reports_creator_id_fkey(display_name, avatar_url)"
                 )
                 .in("id", followedIds)
+                .eq("is_hidden", false)
                 .order("updated_at", { ascending: false })
                 .limit(20)
             : Promise.resolve({ data: null }),

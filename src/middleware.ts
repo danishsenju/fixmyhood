@@ -54,8 +54,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Admin-only routes
-  if (pathname.startsWith("/admin") && user) {
+  // Admin-only routes (exclude /admin-setup which is the promotion page)
+  if (pathname.startsWith("/admin") && !pathname.startsWith("/admin-setup") && user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("is_admin")

@@ -4,8 +4,8 @@
   "description": "Report and fix community issues together",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#2563eb",
+  "background_color": "#F5F0EA",
+  "theme_color": "#B8835F",
   "orientation": "portrait",
   "icons": [
     {

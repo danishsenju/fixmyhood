@@ -68,6 +68,7 @@ interface ReportDetail {
   description: string;
   category: string;
   status: "open" | "acknowledged" | "in_progress" | "closed";
+  is_hidden: boolean;
   comments_locked: boolean;
   photo_url: string | null;
   location_text: string | null;
@@ -145,7 +146,7 @@ const commentTypeConfig = {
 export default function ReportDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [report, setReport] = useState<ReportDetail | null>(null);
@@ -257,12 +258,18 @@ export default function ReportDetailPage() {
       const { data: reportData } = await supabase
         .from("reports")
         .select(
-          "id, title, description, category, status, comments_locked, photo_url, location_text, latitude, longitude, duplicate_of, created_at, creator:profiles!reports_creator_id_fkey(id, display_name, avatar_url)"
+          "id, title, description, category, status, is_hidden, comments_locked, photo_url, location_text, latitude, longitude, duplicate_of, created_at, creator:profiles!reports_creator_id_fkey(id, display_name, avatar_url)"
         )
         .eq("id", id)
         .single();
 
       if (reportData) {
+        // Block non-admins from viewing hidden reports
+        if ((reportData as unknown as { is_hidden: boolean }).is_hidden && !profile?.is_admin) {
+          setReport(null);
+          setLoadingReport(false);
+          return;
+        }
         const creator = Array.isArray(reportData.creator)
           ? reportData.creator[0]
           : reportData.creator;
