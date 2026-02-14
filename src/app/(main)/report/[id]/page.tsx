@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { StatusStepper } from "@/components/StatusStepper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils/cn";
@@ -20,8 +21,10 @@ import {
   Lock,
   Map,
   MapPin,
+  Pencil,
   Share2,
   ShieldCheck,
+  Trash2,
   Users,
   Wrench,
   X,
@@ -32,6 +35,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import dynamic from "next/dynamic";
+
 
 const MapContainer = dynamic(
   () => import("react-leaflet").then((mod) => mod.MapContainer),
@@ -169,6 +173,20 @@ export default function ReportDetailPage() {
   const [commentImage, setCommentImage] = useState<File | null>(null);
   const [commentImagePreview, setCommentImagePreview] = useState<string | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // Delete modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Edit modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Flag modal
   const [showFlagModal, setShowFlagModal] = useState(false);
@@ -530,6 +548,107 @@ export default function ReportDetailPage() {
     setSubmittingFlag(false);
   };
 
+  const categories = [
+    { value: "infrastructure", label: "Infrastructure" },
+    { value: "safety", label: "Safety" },
+    { value: "cleanliness", label: "Cleanliness" },
+    { value: "environment", label: "Environment" },
+    { value: "other", label: "Other" },
+  ];
+
+  const openEditModal = () => {
+    if (!report) return;
+    setEditTitle(report.title);
+    setEditDescription(report.description);
+    setEditCategory(report.category);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(report.photo_url);
+    setShowEditModal(true);
+  };
+
+  const handleEditPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setEditPhotoFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => setEditPhotoPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!user || !report) return;
+    if (!editTitle.trim() || !editCategory || !editDescription.trim()) return;
+
+    setSaving(true);
+    const supabase = createClient();
+
+    let photoUrl = report.photo_url;
+
+    // Upload new photo if changed
+    if (editPhotoFile) {
+      const compressed = await compressImage(editPhotoFile);
+      const fileName = `${user.id}/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("report-photos")
+        .upload(fileName, compressed, { contentType: "image/jpeg" });
+
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from("report-photos").getPublicUrl(fileName);
+        photoUrl = urlData.publicUrl;
+      }
+    } else if (!editPhotoPreview && report.photo_url) {
+      // Photo was removed
+      photoUrl = null;
+    }
+
+    const { error } = await supabase
+      .from("reports")
+      .update({
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        category: editCategory as "infrastructure" | "safety" | "cleanliness" | "environment" | "other",
+        photo_url: photoUrl,
+      })
+      .eq("id", id);
+
+    if (!error) {
+      setReport((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: editTitle.trim(),
+              description: editDescription.trim(),
+              category: editCategory,
+              photo_url: photoUrl,
+            }
+          : prev
+      );
+      setShowEditModal(false);
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!user || !report) return;
+    setDeleting(true);
+    const supabase = createClient();
+
+    // Delete photo from storage if it exists
+    if (report.photo_url) {
+      const path = report.photo_url.split("/report-photos/")[1];
+      if (path) {
+        await supabase.storage.from("report-photos").remove([path]);
+      }
+    }
+
+    const { error } = await supabase.from("reports").delete().eq("id", id);
+    if (!error) {
+      router.push("/");
+    }
+    setDeleting(false);
+  };
+
   const categoryLabel: Record<string, string> = {
     infrastructure: "Infrastructure",
     safety: "Safety",
@@ -741,13 +860,33 @@ export default function ReportDetailPage() {
               <Share2 className="h-4 w-4" />
               Share
             </button>
-            <button
-              onClick={() => user && openFlagModal("report", id)}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-xl"
-            >
-              <Flag className="h-4 w-4" />
-              Flag
-            </button>
+            {isReporter && (
+              <button
+                onClick={openEditModal}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-xl"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+            )}
+            {isReporter && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-600 transition-colors px-3 py-2 rounded-xl"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            )}
+            {!isReporter && (
+              <button
+                onClick={() => user && openFlagModal("report", id)}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-xl"
+              >
+                <Flag className="h-4 w-4" />
+                Flag
+              </button>
+            )}
           </div>
 
           {/* Tabs */}
@@ -1117,6 +1256,136 @@ export default function ReportDetailPage() {
                 </Button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content card-surface p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-foreground">Delete Report</h3>
+              <button onClick={() => setShowDeleteModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6">
+              Are you sure you want to delete this report? This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 rounded-full"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Report Modal */}
+      {showEditModal && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="modal-content card-surface p-6 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-foreground">Edit Report</h3>
+              <button onClick={() => setShowEditModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Photo */}
+            <div className="mb-4">
+              <label className="text-sm font-semibold text-foreground mb-2 block">Photo</label>
+              <input
+                ref={editFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleEditPhotoSelect}
+                className="hidden"
+              />
+              {editPhotoPreview ? (
+                <div className="relative w-full h-40 rounded-xl overflow-hidden bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={editPhotoPreview} alt="Preview" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => { setEditPhotoFile(null); setEditPhotoPreview(null); }}
+                    className="absolute top-2 right-2 w-7 h-7 bg-black/50 rounded-full flex items-center justify-center"
+                  >
+                    <X className="h-4 w-4 text-white" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => editFileInputRef.current?.click()}
+                  className="w-full h-28 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors"
+                >
+                  <Camera className="h-6 w-6" />
+                  <span className="text-xs font-medium">Add photo</span>
+                </button>
+              )}
+            </div>
+
+            {/* Title */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-semibold text-foreground">Title</label>
+                <span className="text-xs text-muted-foreground/70">{editTitle.length}/50</span>
+              </div>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value.slice(0, 50))}
+                className="rounded-xl bg-card border-border"
+              />
+            </div>
+
+            {/* Category */}
+            <div className="mb-4">
+              <label className="text-sm font-semibold text-foreground mb-1 block">Category</label>
+              <select
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+                className="w-full border border-border rounded-xl px-3 py-2.5 text-sm bg-card text-foreground focus:ring-2 focus:ring-[var(--primary)] focus:border-[var(--primary)] outline-none transition-shadow"
+              >
+                {categories.map((cat) => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Description */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-semibold text-foreground">Description</label>
+                <span className="text-xs text-muted-foreground/70">{editDescription.length}/300</span>
+              </div>
+              <Textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value.slice(0, 300))}
+                rows={4}
+                className="rounded-xl resize-none bg-card border-border"
+              />
+            </div>
+
+            <Button
+              onClick={handleSaveEdit}
+              disabled={saving || !editTitle.trim() || !editCategory || !editDescription.trim()}
+              className="w-full bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-full h-11"
+            >
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
           </div>
         </div>
       )}
