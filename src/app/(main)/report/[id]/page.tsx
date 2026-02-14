@@ -860,13 +860,6 @@ export default function ReportDetailPage() {
               <Users className="h-4 w-4" />
               {followersCount} {isFollowing ? "Follow Issue" : "Follow Issue"}
             </button>
-            <button
-              onClick={() => navigator.clipboard?.writeText(window.location.href)}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-xl"
-            >
-              <Share2 className="h-4 w-4" />
-              Share
-            </button>
             {isReporter && (
               <button
                 onClick={openEditModal}
