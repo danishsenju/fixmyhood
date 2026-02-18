@@ -1,5 +1,10 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Demo ADMIN Credentials
+
+- **Email:** usa29234@gmail.com
+- **Password:** admin123!
+
 ## Getting Started
 
 First, run the development server:

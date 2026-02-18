@@ -252,6 +252,12 @@ function LoginContent() {
               <p className="text-center text-[10px] sm:text-[11px] text-muted-foreground/40 mt-3 sm:mt-5 leading-relaxed">
                 By continuing, you agree to our Terms of Service and Privacy Policy
               </p>
+
+              {/* Admin note */}
+              <p className="text-center text-[10px] sm:text-[11px] text-muted-foreground/50 mt-2">
+                For admin login credentials, see the{" "}
+                <span className="text-[var(--primary)] font-medium">README.md</span>
+              </p>
             </div>
           </div>
 
